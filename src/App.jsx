@@ -18,7 +18,7 @@ function App() {
   // Settings
   const [showSettings, setShowSettings] = useState(false);
   const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_api_key') || '');
-  const [modelName, setModelName] = useState(localStorage.getItem('gemini_model') || 'gemini-3.1-pro-preview');
+  const [modelName, setModelName] = useState(localStorage.getItem('gemini_model') || 'gemini-2.5-flash');
   const [outputMode, setOutputMode] = useState(localStorage.getItem('gemini_output_mode') || 'original');
   const [context, setContext] = useState(localStorage.getItem('murmure_context') || '');
 
@@ -267,10 +267,10 @@ function App() {
           <div>
             <label>Modèle IA Cible</label>
             <select value={modelName} onChange={e => setModelName(e.target.value)}>
-              <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Ultra Précis)</option>
-              <option value="gemini-3-pro-preview">Gemini 3.0 Pro</option>
-              <option value="gemini-2.5-pro">Gemini 2.5 Pro (Stable)</option>
-              <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+              <option value="gemini-2.5-flash">Gemini 2.5 Flash (Fulgurant - Recommandé)</option>
+              <option value="gemini-1.5-flash">Gemini 1.5 Flash (Ultra Rapide)</option>
+              <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Précis mais Lent)</option>
+              <option value="gemini-2.5-pro">Gemini 2.5 Pro (Précis)</option>
             </select>
           </div>
           <div>
