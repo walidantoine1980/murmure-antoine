@@ -17,7 +17,9 @@ function App() {
   
   // Settings
   const [showSettings, setShowSettings] = useState(false);
+  const [engine, setEngine] = useState(localStorage.getItem('murmure_engine') || 'gemini');
   const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_api_key') || '');
+  const [groqApiKey, setGroqApiKey] = useState(localStorage.getItem('groq_api_key') || '');
   const [modelName, setModelName] = useState(localStorage.getItem('gemini_model') || 'gemini-2.5-flash');
   const [outputMode, setOutputMode] = useState(localStorage.getItem('gemini_output_mode') || 'original');
   const [context, setContext] = useState(localStorage.getItem('murmure_context') || '');
@@ -29,22 +31,28 @@ function App() {
   const animationFrameRef = useRef(null);
 
   useEffect(() => {
-    if (!apiKey) {
+    if (engine === 'gemini' && !apiKey) {
       setShowSettings(true);
       setStatus('missing_key');
       setLoadingMsg('Veuillez configurer votre clé API Gemini');
+    } else if (engine === 'groq' && !groqApiKey) {
+      setShowSettings(true);
+      setStatus('missing_key');
+      setLoadingMsg('Veuillez configurer votre clé API Groq');
     } else {
       setStatus('ready');
     }
-  }, [apiKey]);
+  }, [apiKey, groqApiKey, engine]);
 
   const saveSettings = () => {
+    localStorage.setItem('murmure_engine', engine);
     localStorage.setItem('gemini_api_key', apiKey);
+    localStorage.setItem('groq_api_key', groqApiKey);
     localStorage.setItem('gemini_model', modelName);
     localStorage.setItem('gemini_output_mode', outputMode);
     localStorage.setItem('murmure_context', context);
     setShowSettings(false);
-    if (apiKey) setStatus('ready');
+    if ((engine === 'gemini' && apiKey) || (engine === 'groq' && groqApiKey)) setStatus('ready');
   };
 
   const handleDataAvailable = (event) => {
@@ -62,61 +70,118 @@ function App() {
     });
   };
 
-  const processAudioToGemini = async () => {
+  const processAudio = async () => {
     if (audioChunksRef.current.length === 0) return;
     
     setStatus('transcribing');
-    setLoadingMsg('Transcription par Gemini 3 Ultra en cours...');
     
     try {
       const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-      const base64Audio = await blobToBase64(audioBlob);
       
-      let promptText = "Agis comme un transcripteur professionnel. 1. Détecte automatiquement la langue parlée dans l'audio. 2. Retranscris fidèlement l'audio dans cette langue détectée, avec la ponctuation correcte. 3. Formate ta réponse exactement comme ceci sans aucun autre texte conversationnel : '[Langue : NomDeLaLangue] La transcription commence ici...'";
-      
-      if (outputMode === 'fr') {
-        promptText = "Agis comme un traducteur et transcripteur professionnel. 1. Écoute l'audio et détecte la langue parlée. 2. Traduis fidèlement tout le contenu de cet audio vers le Français (indépendamment de la langue d'origine). 3. Formate ta réponse exactement comme ceci sans aucun texte conversationnel : '[Traduit en Français] La traduction commence ici...'";
-      } else if (outputMode === 'en') {
-        promptText = "Act as a professional translator. 1. Listen to the audio and detect the spoken language. 2. Faithfully translate the entire content into English (regardless of the original language). 3. Format your response exactly like this without any conversational text: '[Translated to English] The translation starts here...'";
-      }
-
-      if (context.trim()) {
-        promptText += `\n\nCONTEXTE ET VOCABULAIRE : Le locuteur utilise probablement les termes suivants ou aborde ce sujet : "${context}". Assure-toi de bien orthographier ce jargon technique dans la transcription.`;
-      }
-
-      const payload = {
-        contents: [{
-          parts: [
-            { text: promptText },
-            { inlineData: { mimeType: 'audio/webm', data: base64Audio } }
-          ]
-        }],
-        generationConfig: {
-          temperature: 0.1, // Très faible température pour éviter les hallucinations
-          topP: 0.95
+      if (engine === 'gemini') {
+        setLoadingMsg('Transcription Gemini en cours...');
+        const base64Audio = await blobToBase64(audioBlob);
+        
+        let promptText = "Agis comme un transcripteur professionnel. 1. Détecte automatiquement la langue parlée dans l'audio. 2. Retranscris fidèlement l'audio dans cette langue détectée, avec la ponctuation correcte. 3. Formate ta réponse exactement comme ceci sans aucun autre texte conversationnel : '[Langue : NomDeLaLangue] La transcription commence ici...'";
+        
+        if (outputMode === 'fr') {
+          promptText = "Agis comme un traducteur et transcripteur professionnel. 1. Écoute l'audio et détecte la langue parlée. 2. Traduis fidèlement tout le contenu de cet audio vers le Français (indépendamment de la langue d'origine). 3. Formate ta réponse exactement comme ceci sans aucun texte conversationnel : '[Traduit en Français] La traduction commence ici...'";
+        } else if (outputMode === 'en') {
+          promptText = "Act as a professional translator. 1. Listen to the audio and detect the spoken language. 2. Faithfully translate the entire content into English (regardless of the original language). 3. Format your response exactly like this without any conversational text: '[Translated to English] The translation starts here...'";
         }
-      };
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+        if (context.trim()) {
+          promptText += `\n\nCONTEXTE ET VOCABULAIRE : Le locuteur utilise probablement les termes suivants ou aborde ce sujet : "${context}". Assure-toi de bien orthographier ce jargon technique dans la transcription.`;
+        }
 
-      const data = await response.json();
-      
-      if (data.error) {
-        throw new Error(data.error.message);
+        const payload = {
+          contents: [{
+            parts: [
+              { text: promptText },
+              { inlineData: { mimeType: 'audio/webm', data: base64Audio } }
+            ]
+          }],
+          generationConfig: {
+            temperature: 0.1,
+            topP: 0.95
+          }
+        };
+
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+        if (data.error) throw new Error(data.error.message);
+        const resultText = data.candidates[0].content.parts[0].text;
+        setTranscription(prev => (prev + ' ' + resultText).trim());
+        
+      } else if (engine === 'groq') {
+        setLoadingMsg('Transcription Groq (Whisper) en cours...');
+        
+        let endpoint = 'transcriptions';
+        if (outputMode === 'en') {
+           endpoint = 'translations'; // Native translate to english
+        }
+        
+        const formData = new FormData();
+        const file = new File([audioBlob], 'audio.webm', { type: 'audio/webm' });
+        formData.append('file', file);
+        formData.append('model', 'whisper-large-v3-turbo');
+        formData.append('response_format', 'json');
+        if (context.trim()) formData.append('prompt', context);
+        
+        const response = await fetch(`https://api.groq.com/openai/v1/audio/${endpoint}`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${groqApiKey}`
+            },
+            body: formData
+        });
+        
+        const data = await response.json();
+        if (data.error) throw new Error(data.error.message);
+        let resultText = data.text;
+        
+        // Traduction FR via Llama 3 si demandée
+        if (outputMode === 'fr') {
+            setLoadingMsg('Traduction FR (Groq Llama-3) en cours...');
+            let promptText = "Traduis fidèlement le texte suivant en Français. Ne réponds QUE par la traduction, sans aucun autre texte introductif. Si le texte est déjà en français, corrige simplement les fautes. Texte : ";
+            if (context.trim()) {
+                promptText += `\nContexte métier : ${context}\n`;
+            }
+            
+            const chatRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${groqApiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    model: 'llama-3.3-70b-versatile',
+                    messages: [
+                        { role: 'user', content: promptText + resultText }
+                    ],
+                    temperature: 0.1
+                })
+            });
+            const chatData = await chatRes.json();
+            if (chatData.error) throw new Error(chatData.error.message);
+            resultText = chatData.choices[0].message.content;
+            resultText = `[Traduit en Français] ${resultText}`;
+        }
+        
+        setTranscription(prev => (prev + ' ' + resultText).trim());
       }
-
-      const resultText = data.candidates[0].content.parts[0].text;
-      setTranscription(prev => (prev + ' ' + resultText).trim());
+      
       setStatus('ready');
       
     } catch (err) {
-      console.error('Gemini API Error:', err);
+      console.error('API Error:', err);
       setStatus('error');
-      setLoadingMsg(`Erreur Gemini: ${err.message}`);
+      setLoadingMsg(`Erreur API: ${err.message}`);
     } finally {
       audioChunksRef.current = [];
     }
@@ -131,14 +196,14 @@ function App() {
     setVolumeLevel(0);
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.onstop = processAudioToGemini;
+      mediaRecorderRef.current.onstop = processAudio;
       mediaRecorderRef.current.stop();
     }
     setIsRecording(false);
   };
 
   const startRecording = async () => {
-    if (!apiKey) {
+    if ((engine === 'gemini' && !apiKey) || (engine === 'groq' && !groqApiKey)) {
       setShowSettings(true);
       return;
     }
@@ -222,7 +287,7 @@ function App() {
       return <div className="status-badge loading">Configuration requise</div>;
     }
     if (status === 'ready') {
-      return <div className="status-badge ready">Gemini Prêt</div>;
+      return <div className="status-badge ready">{engine === 'gemini' ? 'Gemini Prêt' : 'Groq Prêt'}</div>;
     }
     if (status === 'recording') {
       return <div className="status-badge" style={{color: '#ff3366', borderColor: '#ff3366'}}>Enregistrement en cours...</div>;
@@ -243,7 +308,7 @@ function App() {
       <div className="header">
         <h1 className="title">
           <Sparkles size={28} />
-          Murmure Gemini
+          Murmure {engine === 'gemini' ? 'Gemini' : 'Groq'}
         </h1>
         <div className="header-actions">
           {getStatusBadge()}
@@ -256,23 +321,49 @@ function App() {
       {showSettings && (
         <div className="settings-panel">
           <div>
-            <label>Clé API Google Gemini</label>
-            <input 
-              type="password" 
-              value={apiKey} 
-              onChange={e => setApiKey(e.target.value)} 
-              placeholder="AIzaSy..." 
-            />
-          </div>
-          <div>
-            <label>Modèle IA Cible</label>
-            <select value={modelName} onChange={e => setModelName(e.target.value)}>
-              <option value="gemini-2.5-flash">Gemini 2.5 Flash (Fulgurant - Recommandé)</option>
-              <option value="gemini-1.5-flash">Gemini 1.5 Flash (Ultra Rapide)</option>
-              <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Précis mais Lent)</option>
-              <option value="gemini-2.5-pro">Gemini 2.5 Pro (Précis)</option>
+            <label>Moteur d'Intelligence Artificielle</label>
+            <select value={engine} onChange={e => setEngine(e.target.value)} style={{fontWeight: 'bold', backgroundColor: 'rgba(255,255,255,0.1)'}}>
+              <option value="gemini">Google Gemini (Expertise & Précision)</option>
+              <option value="groq">Groq LPU Whisper (Vitesse & Gratuité)</option>
             </select>
           </div>
+          
+          {engine === 'gemini' ? (
+            <>
+              <div>
+                <label>Clé API Google Gemini</label>
+                <input 
+                  type="password" 
+                  value={apiKey} 
+                  onChange={e => setApiKey(e.target.value)} 
+                  placeholder="AIzaSy..." 
+                />
+              </div>
+              <div>
+                <label>Modèle IA Cible</label>
+                <select value={modelName} onChange={e => setModelName(e.target.value)}>
+                  <option value="gemini-2.5-flash">Gemini 2.5 Flash (Fulgurant - Recommandé)</option>
+                  <option value="gemini-1.5-flash">Gemini 1.5 Flash (Ultra Rapide)</option>
+                  <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Précis mais Lent)</option>
+                  <option value="gemini-2.5-pro">Gemini 2.5 Pro (Précis)</option>
+                </select>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <label>Clé API Groq Cloud</label>
+                <input 
+                  type="password" 
+                  value={groqApiKey} 
+                  onChange={e => setGroqApiKey(e.target.value)} 
+                  placeholder="gsk_..." 
+                />
+                <small style={{color: '#aaa', marginTop: '5px', display: 'block'}}>Modèle utilisé : whisper-large-v3-turbo</small>
+              </div>
+            </>
+          )}
+
           <div>
             <label>Mode de Sortie (Traduction)</label>
             <select value={outputMode} onChange={e => setOutputMode(e.target.value)}>
@@ -298,7 +389,7 @@ function App() {
 
       <div className="main-card">
         <div className={`transcription-box ${!transcription ? 'empty' : ''}`}>
-          {transcription || "Appuyez sur le micro et commencez à parler. L'IA Gemini retranscrira fidèlement vos paroles..."}
+          {transcription || `Appuyez sur le micro et commencez à parler. L'IA ${engine === 'gemini' ? 'Gemini' : 'Groq (Whisper)'} retranscrira fidèlement vos paroles...`}
         </div>
 
         {isRecording && (
@@ -328,7 +419,7 @@ function App() {
           <button 
             className={`record-btn ${isRecording ? 'recording' : ''}`}
             onClick={toggleRecording}
-            disabled={!apiKey || (!isModelReady && !isRecording)}
+            disabled={(!apiKey && engine === 'gemini') || (!groqApiKey && engine === 'groq') || (!isModelReady && !isRecording)}
             title={isRecording ? "Arrêter l'enregistrement" : "Commencer l'enregistrement"}
           >
             {isRecording ? <MicOff size={28} /> : <Mic size={28} />}
@@ -355,7 +446,7 @@ function App() {
       </div>
       
       <div className="footer">
-        Transcription propulsée par <strong>Google Gemini API</strong> • Modèle Multimodal
+        Transcription propulsée par <strong>{engine === 'gemini' ? 'Google Gemini API' : 'Groq LPU (Whisper)'}</strong>
       </div>
     </div>
   );
